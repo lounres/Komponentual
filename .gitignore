@@ -110,6 +110,8 @@ gradle-app.setting
 .classpath
 
 ### Kotlin template
+.kotlin
+
 # Compiled class file
 *.class
 
