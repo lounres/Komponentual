@@ -95,7 +95,7 @@ public suspend fun <
     source: PossibilityNavigation<Configuration>,
     initialConfiguration: Maybe<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: InnerPossibilityNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, Child) -> Unit,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerPossibilityNavigationState<Configuration>) -> Unit,
     updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerPossibilityNavigationState<Configuration>) -> Unit,
     componentAccessor: suspend (Child) -> Component,
 ): KoneAsynchronousState<ChildrenPossibility<Configuration, Component>> =

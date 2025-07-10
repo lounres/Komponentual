@@ -118,7 +118,7 @@ public suspend fun <
     source: StackNavigation<Configuration>,
     initialStack: KoneList<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: InnerStackNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, Child) -> Unit,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerStackNavigationState<Configuration>) -> Unit,
     updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerStackNavigationState<Configuration>) -> Unit,
     componentAccessor: suspend (Child) -> Component,
 ): KoneAsynchronousState<ChildrenStack<Configuration, Component>> =

@@ -75,7 +75,7 @@ public suspend fun <
     allVariants: KoneSet<Configuration>,
     initialVariant: Configuration,
     createChild: suspend (configuration: Configuration, nextState: InnerVariantsNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, Child) -> Unit,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerVariantsNavigationState<Configuration>) -> Unit,
     updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerVariantsNavigationState<Configuration>) -> Unit,
     componentAccessor: suspend (Child) -> Component,
 ): KoneAsynchronousState<ChildrenVariants<Configuration, Component>> =
