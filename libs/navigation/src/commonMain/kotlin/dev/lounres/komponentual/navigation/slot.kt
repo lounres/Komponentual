@@ -80,7 +80,7 @@ public suspend fun <
     source: SlotNavigation<Configuration>,
     initialConfiguration: Configuration,
     createChild: suspend (configuration: Configuration, nextState: InnerSlotNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (Child) -> Unit,
+    destroyChild: suspend (configuration: Configuration, Child) -> Unit,
     updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerSlotNavigationState<Configuration>) -> Unit,
     componentAccessor: suspend (Child) -> Component,
 ): KoneAsynchronousState<ChildrenSlot<Configuration, Component>> =

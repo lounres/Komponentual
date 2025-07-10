@@ -31,7 +31,7 @@ plugins {
     id("com.vanniktech.maven.publish") version "0.31.0"
 }
 
-val komponentualVersion = "0.1.0"
+val komponentualVersion = project.properties["version"] as String
 val komponentualGroup = project.properties["group"] as String
 
 allprojects {

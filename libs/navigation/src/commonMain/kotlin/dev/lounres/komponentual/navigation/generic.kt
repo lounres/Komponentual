@@ -39,7 +39,7 @@ public suspend fun <
     initialState: InnerNavigationState,
     navigationTransition: suspend (previousState: InnerNavigationState, event: NavigationEvent) -> InnerNavigationState,
     createChild: suspend (configuration: Configuration, nextState: InnerNavigationState) -> Child,
-    destroyChild: suspend (Child) -> Unit,
+    destroyChild: suspend (configuration: Configuration, Child) -> Unit,
     updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerNavigationState) -> Unit,
     publicNavigationStateMapper: suspend (InnerNavigationState, KoneMap<Configuration, Child>) -> PublicNavigationState,
 ): KoneAsynchronousState<PublicNavigationState> {
@@ -61,7 +61,7 @@ public suspend fun <
                 if (node.key in nextState.configurations)
                     updateChild(node.key, node.value, nextState)
                 else {
-                    destroyChild(node.value)
+                    destroyChild(node.key, node.value)
                     node.remove()
                 }
             
