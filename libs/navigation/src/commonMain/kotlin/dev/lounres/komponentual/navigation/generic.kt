@@ -15,6 +15,8 @@ import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
 import dev.lounres.kone.state.KoneAsynchronousState
 import dev.lounres.kone.state.KoneMutableAsynchronousState
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 
 public fun interface NavigationSource<out Event> {
@@ -57,17 +59,19 @@ public suspend fun <
         initialState = initialState,
         checkTransition = { previousState, transition -> CheckResult.Success(navigationTransition(previousState, transition)) },
         onTransition = { _, _, nextState ->
-            for (node in components.nodesView)
-                if (node.key in nextState.configurations)
-                    updateChild(node.key, node.value, nextState)
-                else {
-                    destroyChild(node.key, node.value, nextState)
-                    node.remove()
+            supervisorScope {
+                for (node in components.nodesView)
+                    if (node.key in nextState.configurations) launch {
+                        updateChild(node.key, node.value, nextState)
+                    } else launch {
+                        destroyChild(node.key, node.value, nextState)
+                        node.remove()
+                    }
+                
+                for (configuration in nextState.configurations) if (configuration !in components) launch {
+                    components[configuration] = createChild(configuration, nextState)
                 }
-            
-            for (configuration in nextState.configurations) if (configuration !in components)
-                components[configuration] = createChild(configuration, nextState)
-            
+            }
             result.set(publicNavigationStateMapper(nextState, components))
         }
     )
@@ -77,7 +81,7 @@ public suspend fun <
     return result
 }
 
-public class ChildWithConfiguration<out Configuration, out Component>(
+public data class ChildWithConfiguration<out Configuration, out Component>(
     public val configuration: Configuration,
     public val component: Component,
 )

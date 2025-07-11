@@ -14,9 +14,8 @@ import dev.lounres.kone.relations.defaultEquality
 import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 
 public typealias VariantsNavigationEvent<Configuration> = (allVariants: KoneSet<Configuration>, Configuration) -> Configuration
@@ -27,15 +26,14 @@ public interface MutableVariantsNavigation<Configuration> : VariantsNavigation<C
     public suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableVariantsNavigation(coroutineScope: CoroutineScope): MutableVariantsNavigation<Configuration> =
-    MutableVariantsNavigationImpl(coroutineScope = coroutineScope)
+public fun <Configuration> MutableVariantsNavigation(): MutableVariantsNavigation<Configuration> =
+    MutableVariantsNavigationImpl()
 
 public suspend fun <Configuration> MutableVariantsNavigation<Configuration>.set(configuration: Configuration) {
     navigate { _, _ -> configuration }
 }
 
 internal class MutableVariantsNavigationImpl<Configuration>(
-    private val coroutineScope: CoroutineScope,
 ) : MutableVariantsNavigation<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (VariantsNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
@@ -47,9 +45,16 @@ internal class MutableVariantsNavigationImpl<Configuration>(
     }
     
     override suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>) {
-        callbacksLock.withLock {
+        val callbacksToLaunch = callbacksLock.withLock {
             callbacks.toList()
-        }.map { coroutineScope.launch { it(variantsTransformation) } }.joinAll()
+        }
+        supervisorScope {
+            callbacksToLaunch.forEach { callback ->
+                launch {
+                    callback(variantsTransformation)
+                }
+            }
+        }
     }
 }
 

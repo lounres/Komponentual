@@ -15,9 +15,8 @@ import dev.lounres.kone.relations.defaultEquality
 import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 
 public typealias StackNavigationEvent<Configuration> = (stack: KoneList<Configuration>) -> KoneList<Configuration>
@@ -28,8 +27,8 @@ public interface MutableStackNavigation<Configuration> : StackNavigation<Configu
     public suspend fun navigate(stackTransformation: StackNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableStackNavigation(coroutineScope: CoroutineScope): MutableStackNavigation<Configuration> =
-    MutableStackNavigationImpl(coroutineScope = coroutineScope)
+public fun <Configuration> MutableStackNavigation(): MutableStackNavigation<Configuration> =
+    MutableStackNavigationImpl()
 
 public suspend fun <Configuration> MutableStackNavigation<Configuration>.push(configuration: Configuration) {
     navigate { stack ->
@@ -64,9 +63,7 @@ public suspend fun <C> MutableStackNavigation<C>.updateCurrent(update: (C) -> C)
     }
 }
 
-internal class MutableStackNavigationImpl<Configuration>(
-    private val coroutineScope: CoroutineScope,
-) : MutableStackNavigation<Configuration> {
+internal class MutableStackNavigationImpl<Configuration> : MutableStackNavigation<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (StackNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -77,9 +74,16 @@ internal class MutableStackNavigationImpl<Configuration>(
     }
     
     override suspend fun navigate(stackTransformation: StackNavigationEvent<Configuration>) {
-        callbacksLock.withLock {
+        val callbacksToLaunch = callbacksLock.withLock {
             callbacks.toList()
-        }.map { coroutineScope.launch { it(stackTransformation) } }.joinAll()
+        }
+        supervisorScope {
+            callbacksToLaunch.forEach { callback ->
+                launch {
+                    callback(stackTransformation)
+                }
+            }
+        }
     }
 }
 

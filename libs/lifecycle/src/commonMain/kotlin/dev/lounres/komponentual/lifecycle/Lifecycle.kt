@@ -11,9 +11,8 @@ import dev.lounres.kone.collections.list.KoneMutableNoddedList
 import dev.lounres.kone.collections.list.implementations.KoneGCLinkedList
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -63,20 +62,17 @@ public interface MutableLifecycle<State, out Transition> : Lifecycle<State, Tran
 }
 
 public fun <State, Transition> MutableLifecycle(
-    coroutineScope: CoroutineScope,
     initialState: State,
     checkNextState: (previousState: State, nextState: State) -> Boolean,
     decomposeTransition: (previousState: State, nextState: State) -> KoneList<Transition>,
 ): MutableLifecycle<State, Transition> =
     MutableLifecycleImpl(
-        coroutineScope = coroutineScope,
         initialState = initialState,
         checkNextState = checkNextState,
         decomposeTransition = decomposeTransition,
     )
 
 private class MutableLifecycleImpl<State, Transition>(
-    private val coroutineScope: CoroutineScope,
     initialState: State,
     checkNextState: (previousState: State, nextState: State) -> Boolean,
     decomposeTransition: (previousState: State, nextState: State) -> KoneList<Transition>,
@@ -92,15 +88,17 @@ private class MutableLifecycleImpl<State, Transition>(
                 if (checkNextState(previousState, nextState)) CheckResult.Success(nextState) else CheckResult.Failure(null)
             },
             onTransition = { previousState, _, nextState ->
-                for (transition in decomposeTransition(previousState, nextState))
-                    callbacksLock.withLock {
+                for (transition in decomposeTransition(previousState, nextState)) {
+                    val callbacksToLaunch = callbacksLock.withLock {
                         callbacksState = nextState
                         callbacks.toList()
-                    }.map {
-                        coroutineScope.launch {
-                            it(transition)
+                    }
+                    supervisorScope {
+                        callbacksToLaunch.forEach { callback ->
+                            launch { callback(transition) }
                         }
-                    }.joinAll()
+                    }
+                }
             },
         )
     
@@ -127,7 +125,6 @@ public interface DeferredLifecycle<out State, out Transition> : Lifecycle<State,
 
 @DelicateLifecycleAPI
 public fun <IState, ITransition, TState, OState, OTransition> Lifecycle<IState, ITransition>.childDeferring(
-    coroutineScope: CoroutineScope,
     initialState: TState,
     mapState: (IState) -> TState,
     mapTransition: (TState, ITransition) -> TState,
@@ -137,7 +134,6 @@ public fun <IState, ITransition, TState, OState, OTransition> Lifecycle<IState, 
 ): DeferredLifecycle<OState, OTransition> =
     ChildDeferringLifecycle(
         lifecycle = this,
-        coroutineScope = coroutineScope,
         initialState = initialState,
         mapState = mapState,
         mapTransition = mapTransition,
@@ -149,7 +145,6 @@ public fun <IState, ITransition, TState, OState, OTransition> Lifecycle<IState, 
 @DelicateLifecycleAPI
 private class ChildDeferringLifecycle<IState, ITransition, TState, OState, OTransition>(
     private val lifecycle: Lifecycle<IState, ITransition>,
-    coroutineScope: CoroutineScope,
     initialState: TState,
     private val mapState: (IState) -> TState,
     private val mapTransition: (TState, ITransition) -> TState,
@@ -169,11 +164,17 @@ private class ChildDeferringLifecycle<IState, ITransition, TState, OState, OTran
                 if (checkNextState(previousState, nextState)) CheckResult.Success(nextState) else CheckResult.Failure(null)
             },
             onTransition = { previousState, _, nextState ->
-                for (transition in decomposeTransition(previousState, nextState))
-                    callbacksLock.withLock {
+                for (transition in decomposeTransition(previousState, nextState)) {
+                    val callbacksToLaunch = callbacksLock.withLock {
                         callbacksState = outputState(nextState)
                         callbacks.toList()
-                    }.map { coroutineScope.launch { it(transition) } }.joinAll()
+                    }
+                    supervisorScope {
+                        callbacksToLaunch.forEach { callback ->
+                            launch { callback(transition) }
+                        }
+                    }
+                }
             },
         )
     
@@ -206,7 +207,6 @@ private class ChildDeferringLifecycle<IState, ITransition, TState, OState, OTran
 public fun <I1State, I1Transition, I2State, I2Transition, TState, OState, OTransition> Lifecycle.Companion.mergeDeferring(
     lifecycle1: Lifecycle<I1State, I1Transition>,
     lifecycle2: Lifecycle<I2State, I2Transition>,
-    coroutineScope: CoroutineScope,
     initialState: TState,
     mergeStates: (I1State, I2State) -> TState,
     mapTransition1: (TState, I1Transition) -> TState,
@@ -218,7 +218,6 @@ public fun <I1State, I1Transition, I2State, I2Transition, TState, OState, OTrans
     MergeDeferringLifecycle(
         lifecycle1 = lifecycle1,
         lifecycle2 = lifecycle2,
-        coroutineScope = coroutineScope,
         initialState = initialState,
         mergeStates = mergeStates,
         mapTransition1 = mapTransition1,
@@ -232,7 +231,6 @@ public fun <I1State, I1Transition, I2State, I2Transition, TState, OState, OTrans
 private class MergeDeferringLifecycle<I1State, I1Transition, I2State, I2Transition, TState, OState, OTransition>(
     private val lifecycle1: Lifecycle<I1State, I1Transition>,
     private val lifecycle2: Lifecycle<I2State, I2Transition>,
-    coroutineScope: CoroutineScope,
     initialState: TState,
     private val mergeStates: (I1State, I2State) -> TState,
     private val mapTransition1: (TState, I1Transition) -> TState,
@@ -253,11 +251,17 @@ private class MergeDeferringLifecycle<I1State, I1Transition, I2State, I2Transiti
                 if (checkNextState(previousState, nextState)) CheckResult.Success(nextState) else CheckResult.Failure(null)
             },
             onTransition = { previousState, _, nextState ->
-                for (transition in decomposeTransition(previousState, nextState))
-                    callbacksLock.withLock {
+                for (transition in decomposeTransition(previousState, nextState)) {
+                    val callbacksToLaunch = callbacksLock.withLock {
                         callbacksState = outputState(nextState)
                         callbacks.toList()
-                    }.map { coroutineScope.launch { it(transition) } }.joinAll()
+                    }
+                    supervisorScope {
+                        callbacksToLaunch.forEach { callback ->
+                            launch { callback(transition) }
+                        }
+                    }
+                }
             },
         )
     

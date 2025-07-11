@@ -17,9 +17,8 @@ import dev.lounres.kone.relations.defaultEquality
 import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 
 public typealias PossibilityNavigationEvent<Configuration> = (Maybe<Configuration>) -> Maybe<Configuration>
@@ -30,8 +29,8 @@ public interface MutablePossibilityNavigation<Configuration> : PossibilityNaviga
     public suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutablePossibilityNavigation(coroutineScope: CoroutineScope): MutablePossibilityNavigation<Configuration> =
-    MutablePossibilityNavigationImpl(coroutineScope = coroutineScope)
+public fun <Configuration> MutablePossibilityNavigation(): MutablePossibilityNavigation<Configuration> =
+    MutablePossibilityNavigationImpl()
 
 public suspend fun <Configuration> MutablePossibilityNavigation<Configuration>.set(configuration: Configuration) {
     navigate { Some(configuration) }
@@ -42,7 +41,6 @@ public suspend fun <Configuration> MutablePossibilityNavigation<Configuration>.c
 }
 
 internal class MutablePossibilityNavigationImpl<Configuration>(
-    private val coroutineScope: CoroutineScope,
 ) : MutablePossibilityNavigation<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (PossibilityNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
@@ -54,9 +52,16 @@ internal class MutablePossibilityNavigationImpl<Configuration>(
     }
     
     override suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>) {
-        callbacksLock.withLock {
+        val callbacksToLaunch = callbacksLock.withLock {
             callbacks.toList()
-        }.map { coroutineScope.launch { it(possibilityTransformation) } }.joinAll()
+        }
+        supervisorScope {
+            callbacksToLaunch.forEach { callback ->
+                launch {
+                    callback(possibilityTransformation)
+                }
+            }
+        }
     }
 }
 

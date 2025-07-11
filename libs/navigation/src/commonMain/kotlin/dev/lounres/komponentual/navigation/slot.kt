@@ -13,9 +13,8 @@ import dev.lounres.kone.relations.defaultEquality
 import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 
 public typealias SlotNavigationEvent<Configuration> = (Configuration) -> Configuration
@@ -26,15 +25,14 @@ public interface MutableSlotNavigation<Configuration> : SlotNavigation<Configura
     public suspend fun navigate(slotTransformation: SlotNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableSlotNavigation(coroutineScope: CoroutineScope): MutableSlotNavigation<Configuration> =
-    MutableSlotNavigationImpl(coroutineScope = coroutineScope)
+public fun <Configuration> MutableSlotNavigation(): MutableSlotNavigation<Configuration> =
+    MutableSlotNavigationImpl()
 
 public suspend fun <Configuration> MutableSlotNavigation<Configuration>.set(configuration: Configuration) {
     navigate { configuration }
 }
 
 internal class MutableSlotNavigationImpl<Configuration>(
-    private val coroutineScope: CoroutineScope,
 ) : MutableSlotNavigation<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (SlotNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
@@ -46,9 +44,16 @@ internal class MutableSlotNavigationImpl<Configuration>(
     }
     
     override suspend fun navigate(slotTransformation: SlotNavigationEvent<Configuration>) {
-        callbacksLock.withLock {
+        val callbacksToLaunch = callbacksLock.withLock {
             callbacks.toList()
-        }.map { coroutineScope.launch { it(slotTransformation) } }.joinAll()
+        }
+        supervisorScope {
+            callbacksToLaunch.forEach { callback ->
+                launch {
+                    callback(slotTransformation)
+                }
+            }
+        }
     }
 }
 
