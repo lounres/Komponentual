@@ -22,25 +22,26 @@ import kotlinx.coroutines.supervisorScope
 
 public typealias PossibilityNavigationEvent<Configuration> = (Maybe<Configuration>) -> Maybe<Configuration>
 
-public typealias PossibilityNavigation<Configuration> = NavigationSource<PossibilityNavigationEvent<Configuration>>
+public typealias PossibilityNavigationSource<Configuration> = NavigationSource<PossibilityNavigationEvent<Configuration>>
 
-public interface MutablePossibilityNavigation<Configuration> : PossibilityNavigation<Configuration> {
+public fun interface PossibilityNavigationTarget<Configuration> {
     public suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutablePossibilityNavigation(): MutablePossibilityNavigation<Configuration> =
-    MutablePossibilityNavigationImpl()
-
-public suspend fun <Configuration> MutablePossibilityNavigation<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.set(configuration: Configuration) {
     navigate { Some(configuration) }
 }
 
-public suspend fun <Configuration> MutablePossibilityNavigation<Configuration>.clear() {
+public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.clear() {
     navigate { None }
 }
 
-internal class MutablePossibilityNavigationImpl<Configuration>(
-) : MutablePossibilityNavigation<Configuration> {
+public interface PossibilityNavigationHub<Configuration> : PossibilityNavigationSource<Configuration>, PossibilityNavigationTarget<Configuration>
+
+public fun <Configuration> PossibilityNavigationHub(): PossibilityNavigationHub<Configuration> = PossibilityNavigationHubImpl()
+
+internal class PossibilityNavigationHubImpl<Configuration>(
+) : PossibilityNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (PossibilityNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -66,8 +67,6 @@ internal class MutablePossibilityNavigationImpl<Configuration>(
 
 public typealias PossibilityNavigationState<Configuration> = Maybe<Configuration>
 
-public typealias ChildrenPossibility<Configuration, Component> = Maybe<ChildWithConfiguration<Configuration, Component>>
-
 public suspend fun <
     Configuration,
     Child,
@@ -75,7 +74,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    source: PossibilityNavigation<Configuration>,
+    source: PossibilityNavigationSource<Configuration>,
     initialConfiguration: Maybe<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: PossibilityNavigationState<Configuration>) -> Child,
     destroyChild: suspend (configuration: Configuration, data: Child, nextState: PossibilityNavigationState<Configuration>) -> Unit,

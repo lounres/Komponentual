@@ -33,7 +33,7 @@ public data class NavigationResult<NavigationStateType, Configuration, Child>(
 
 public suspend fun <
     Configuration,
-    NavigationStateType,
+    NavigationState,
     NavigationEvent,
     Child,
 > children(
@@ -41,13 +41,13 @@ public suspend fun <
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: NavigationSource<NavigationEvent>,
-    initialState: NavigationStateType,
-    stateConfigurationsMapping: (NavigationStateType) -> KoneSet<Configuration>,
-    navigationTransition: suspend (previousState: NavigationStateType, event: NavigationEvent) -> NavigationStateType,
-    createChild: suspend (configuration: Configuration, nextState: NavigationStateType) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: NavigationStateType) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: NavigationStateType) -> Unit,
-): KoneAsynchronousHub<NavigationResult<NavigationStateType, Configuration, Child>> {
+    initialState: NavigationState,
+    stateConfigurationsMapping: (NavigationState) -> KoneSet<Configuration>,
+    navigationTransition: suspend (previousState: NavigationState, event: NavigationEvent) -> NavigationState,
+    createChild: suspend (configuration: Configuration, nextState: NavigationState) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: NavigationState) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: NavigationState) -> Unit,
+): KoneAsynchronousHub<NavigationResult<NavigationState, Configuration, Child>> {
     val componentsMutex = Mutex()
     val components = KoneMutableMap.of<Configuration, Child>(
         keyEquality = configurationEquality,
@@ -57,9 +57,9 @@ public suspend fun <
     for (configuration in stateConfigurationsMapping(initialState))
         components[configuration] = createChild(configuration, initialState)
     
-    val result = KoneMutableAsynchronousHub(NavigationResult(initialState, components), defaultEquality())
+    val result = KoneMutableAsynchronousHub(NavigationResult(initialState, components), defaultEquality() /* FIXME: Implement actual equality */)
     
-    val automaton = AsynchronousAutomaton<NavigationStateType, NavigationEvent, Nothing>(
+    val automaton = AsynchronousAutomaton<NavigationState, NavigationEvent, Nothing>(
         initialState = initialState,
         checkTransition = { previousState, transition -> CheckResult.Success(navigationTransition(previousState, transition)) },
         onTransition = { _, _, nextState ->

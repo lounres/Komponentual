@@ -20,16 +20,13 @@ import kotlinx.coroutines.supervisorScope
 
 public typealias StackNavigationEvent<Configuration> = (stack: KoneList<Configuration>) -> KoneList<Configuration>
 
-public typealias StackNavigation<Configuration> = NavigationSource<StackNavigationEvent<Configuration>>
+public typealias StackNavigationSource<Configuration> = NavigationSource<StackNavigationEvent<Configuration>>
 
-public interface MutableStackNavigation<Configuration> : StackNavigation<Configuration> {
+public fun interface StackNavigationTarget<Configuration> {
     public suspend fun navigate(stackTransformation: StackNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableStackNavigation(): MutableStackNavigation<Configuration> =
-    MutableStackNavigationImpl()
-
-public suspend fun <Configuration> MutableStackNavigation<Configuration>.push(configuration: Configuration) {
+public suspend fun <Configuration> StackNavigationTarget<Configuration>.push(configuration: Configuration) {
     navigate { stack ->
         KoneList.build(stack.size + 1u) {
             +stack
@@ -38,11 +35,11 @@ public suspend fun <Configuration> MutableStackNavigation<Configuration>.push(co
     }
 }
 
-public suspend fun <Configuration> MutableStackNavigation<Configuration>.pop() {
+public suspend fun <Configuration> StackNavigationTarget<Configuration>.pop() {
     navigate { stack -> stack.dropLast(1u) }
 }
 
-public suspend fun <Configuration> MutableStackNavigation<Configuration>.replaceCurrent(configuration: Configuration) {
+public suspend fun <Configuration> StackNavigationTarget<Configuration>.replaceCurrent(configuration: Configuration) {
     navigate { stack ->
         KoneList.build(stack.size + 1u) {
             +stack
@@ -52,7 +49,7 @@ public suspend fun <Configuration> MutableStackNavigation<Configuration>.replace
     }
 }
 
-public suspend fun <C> MutableStackNavigation<C>.updateCurrent(update: (C) -> C) {
+public suspend fun <C> StackNavigationTarget<C>.updateCurrent(update: (C) -> C) {
     navigate { stack ->
         KoneList.build(stack.size + 1u) {
             +stack
@@ -62,7 +59,12 @@ public suspend fun <C> MutableStackNavigation<C>.updateCurrent(update: (C) -> C)
     }
 }
 
-internal class MutableStackNavigationImpl<Configuration> : MutableStackNavigation<Configuration> {
+public interface StackNavigationHub<Configuration> : StackNavigationSource<Configuration>, StackNavigationTarget<Configuration>
+
+public fun <Configuration> StackNavigationHub(): StackNavigationHub<Configuration> =
+    StackNavigationHubImpl()
+
+internal class StackNavigationHubImpl<Configuration> : StackNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (StackNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -88,16 +90,6 @@ internal class MutableStackNavigationImpl<Configuration> : MutableStackNavigatio
 
 public typealias StackNavigationState<Configuration> = KoneList<Configuration>
 
-public data class ChildrenStack<out Configuration, out Component>(
-    public val active: ChildWithConfiguration<Configuration, Component>,
-    public val backStack: KoneList<ChildWithConfiguration<Configuration, Component>> = KoneList.empty(),
-)
-
-public fun <Configuration, Component> ChildrenStack(configuration: Configuration, component: Component): ChildrenStack<Configuration, Component> =
-    ChildrenStack(
-        active = ChildWithConfiguration(configuration, component),
-    )
-
 public suspend fun <
     Configuration,
     Child,
@@ -105,7 +97,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    source: StackNavigation<Configuration>,
+    source: StackNavigationSource<Configuration>,
     initialStack: KoneList<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: StackNavigationState<Configuration>) -> Child,
     destroyChild: suspend (configuration: Configuration, data: Child, nextState: StackNavigationState<Configuration>) -> Unit,

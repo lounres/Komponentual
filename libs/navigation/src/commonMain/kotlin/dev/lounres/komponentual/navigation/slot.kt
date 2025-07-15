@@ -18,21 +18,23 @@ import kotlinx.coroutines.supervisorScope
 
 public typealias SlotNavigationEvent<Configuration> = (Configuration) -> Configuration
 
-public typealias SlotNavigation<Configuration> = NavigationSource<SlotNavigationEvent<Configuration>>
+public typealias SlotNavigationSource<Configuration> = NavigationSource<SlotNavigationEvent<Configuration>>
 
-public interface MutableSlotNavigation<Configuration> : SlotNavigation<Configuration> {
+public fun interface SlotNavigationTarget<Configuration> {
     public suspend fun navigate(slotTransformation: SlotNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableSlotNavigation(): MutableSlotNavigation<Configuration> =
-    MutableSlotNavigationImpl()
-
-public suspend fun <Configuration> MutableSlotNavigation<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> SlotNavigationTarget<Configuration>.set(configuration: Configuration) {
     navigate { configuration }
 }
 
-internal class MutableSlotNavigationImpl<Configuration>(
-) : MutableSlotNavigation<Configuration> {
+public interface SlotNavigationHub<Configuration> : SlotNavigationSource<Configuration>, SlotNavigationTarget<Configuration>
+
+public fun <Configuration> SlotNavigationHub(): SlotNavigationHub<Configuration> =
+    SlotNavigationHubImpl()
+
+internal class SlotNavigationHubImpl<Configuration>(
+) : SlotNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (SlotNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -56,8 +58,6 @@ internal class MutableSlotNavigationImpl<Configuration>(
     }
 }
 
-public typealias ChildrenSlot<Configuration, Component> = ChildWithConfiguration<Configuration, Component>
-
 public suspend fun <
     Configuration,
     Child,
@@ -65,7 +65,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    source: SlotNavigation<Configuration>,
+    source: SlotNavigationSource<Configuration>,
     initialConfiguration: Configuration,
     createChild: suspend (configuration: Configuration, nextState: Configuration) -> Child,
     destroyChild: suspend (configuration: Configuration, data: Child, nextState: Configuration) -> Unit,

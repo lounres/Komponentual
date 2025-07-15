@@ -3,7 +3,6 @@ package dev.lounres.komponentual.navigation
 import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
-import dev.lounres.kone.collections.map.KoneMap
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
@@ -18,21 +17,23 @@ import kotlinx.coroutines.supervisorScope
 
 public typealias VariantsNavigationEvent<Configuration> = (allVariants: KoneSet<Configuration>, Configuration) -> Configuration
 
-public typealias VariantsNavigation<Configuration> = NavigationSource<VariantsNavigationEvent<Configuration>>
+public typealias VariantsNavigationSource<Configuration> = NavigationSource<VariantsNavigationEvent<Configuration>>
 
-public interface MutableVariantsNavigation<Configuration> : VariantsNavigation<Configuration> {
+public fun interface VariantsNavigationTarget<Configuration> {
     public suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>)
 }
 
-public fun <Configuration> MutableVariantsNavigation(): MutableVariantsNavigation<Configuration> =
-    MutableVariantsNavigationImpl()
-
-public suspend fun <Configuration> MutableVariantsNavigation<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> VariantsNavigationTarget<Configuration>.set(configuration: Configuration) {
     navigate { _, _ -> configuration }
 }
 
-internal class MutableVariantsNavigationImpl<Configuration>(
-) : MutableVariantsNavigation<Configuration> {
+public interface VariantsNavigationHub<Configuration> : VariantsNavigationSource<Configuration>, VariantsNavigationTarget<Configuration>
+
+public fun <Configuration> VariantsNavigationHub(): VariantsNavigationHub<Configuration> =
+    VariantsNavigationHubImpl()
+
+internal class VariantsNavigationHubImpl<Configuration>(
+) : VariantsNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (VariantsNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -61,11 +62,6 @@ public data class VariantsNavigationState<Configuration> internal constructor(
     public val currentVariant: Configuration,
 )
 
-public data class ChildrenVariants<Configuration, out Component>(
-    public val active: ChildWithConfiguration<Configuration, Component>,
-    public val allVariants: KoneMap<Configuration, Component>,
-)
-
 public suspend fun <
     Configuration,
     Child,
@@ -73,7 +69,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    source: VariantsNavigation<Configuration>,
+    source: VariantsNavigationSource<Configuration>,
     allVariants: KoneSet<Configuration>,
     initialVariant: Configuration,
     createChild: suspend (configuration: Configuration, nextState: VariantsNavigationState<Configuration>) -> Child,
