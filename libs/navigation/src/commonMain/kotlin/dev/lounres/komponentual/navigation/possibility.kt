@@ -3,18 +3,17 @@ package dev.lounres.komponentual.navigation
 import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
-import dev.lounres.kone.collections.map.get
 import dev.lounres.kone.collections.set.KoneSet
+import dev.lounres.kone.collections.set.empty
 import dev.lounres.kone.collections.set.of
+import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.maybe.Maybe
 import dev.lounres.kone.maybe.None
 import dev.lounres.kone.maybe.Some
-import dev.lounres.kone.maybe.map
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
-import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -65,62 +64,42 @@ internal class MutablePossibilityNavigationImpl<Configuration>(
     }
 }
 
-public class InnerPossibilityNavigationState<Configuration> internal constructor(
-    public val current: Maybe<Configuration>,
-    configurationEquality: Equality<Configuration> = defaultEquality(),
-    configurationHashing: Hashing<Configuration>? = null,
-    configurationOrder: Order<Configuration>? = null,
-) : NavigationState<Configuration> {
-    override val configurations: KoneSet<Configuration> =
-        when (current) {
-            None -> KoneSet.of(
-                elementEquality = configurationEquality,
-                elementHashing = configurationHashing,
-                elementOrder = configurationOrder,
-            )
-            is Some<Configuration> -> KoneSet.of(
-                current.value,
-                elementEquality = configurationEquality,
-                elementHashing = configurationHashing,
-                elementOrder = configurationOrder,
-            )
-        }
-}
+public typealias PossibilityNavigationState<Configuration> = Maybe<Configuration>
 
 public typealias ChildrenPossibility<Configuration, Component> = Maybe<ChildWithConfiguration<Configuration, Component>>
 
 public suspend fun <
     Configuration,
     Child,
-    Component,
 > childrenPossibility(
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: PossibilityNavigation<Configuration>,
     initialConfiguration: Maybe<Configuration>,
-    createChild: suspend (configuration: Configuration, nextState: InnerPossibilityNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerPossibilityNavigationState<Configuration>) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerPossibilityNavigationState<Configuration>) -> Unit,
-    componentAccessor: suspend (Child) -> Component,
-): KoneAsynchronousState<ChildrenPossibility<Configuration, Component>> =
+    createChild: suspend (configuration: Configuration, nextState: PossibilityNavigationState<Configuration>) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: PossibilityNavigationState<Configuration>) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: PossibilityNavigationState<Configuration>) -> Unit,
+): KoneAsynchronousHub<NavigationResult<PossibilityNavigationState<Configuration>, Configuration, Child>> =
     children(
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
         source = source,
-        initialState = InnerPossibilityNavigationState(
-            current = initialConfiguration
-        ),
-        navigationTransition = { previousState, event ->
-            InnerPossibilityNavigationState(
-                current = event(previousState.current)
-            )
+        initialState = initialConfiguration,
+        stateConfigurationsMapping = { currentNavigationState ->
+            when (currentNavigationState) {
+                None -> KoneSet.empty()
+                is Some<Configuration> -> KoneSet.of(
+                    currentNavigationState.value,
+                    elementEquality = configurationEquality,
+                    elementHashing = configurationHashing,
+                    elementOrder = configurationOrder,
+                )
+            }
         },
+        navigationTransition = { previousState, event -> event(previousState) },
         createChild = createChild,
         destroyChild = destroyChild,
         updateChild = updateChild,
-        publicNavigationStateMapper = { innerState, childByConfiguration ->
-            innerState.current.map { ChildWithConfiguration(it, componentAccessor(childByConfiguration[it])) }
-        },
     )

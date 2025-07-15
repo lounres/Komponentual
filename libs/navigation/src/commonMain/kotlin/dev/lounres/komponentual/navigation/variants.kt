@@ -4,14 +4,12 @@ import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
 import dev.lounres.kone.collections.map.KoneMap
-import dev.lounres.kone.collections.map.associateWith
-import dev.lounres.kone.collections.map.get
 import dev.lounres.kone.collections.set.KoneSet
+import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
-import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -58,10 +56,10 @@ internal class MutableVariantsNavigationImpl<Configuration>(
     }
 }
 
-public class InnerVariantsNavigationState<Configuration> internal constructor(
-    override val configurations: KoneSet<Configuration>,
+public data class VariantsNavigationState<Configuration> internal constructor(
+    public val configurations: KoneSet<Configuration>,
     public val currentVariant: Configuration,
-) : NavigationState<Configuration>
+)
 
 public data class ChildrenVariants<Configuration, out Component>(
     public val active: ChildWithConfiguration<Configuration, Component>,
@@ -71,7 +69,6 @@ public data class ChildrenVariants<Configuration, out Component>(
 public suspend fun <
     Configuration,
     Child,
-    Component,
 > childrenVariants(
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
@@ -79,22 +76,22 @@ public suspend fun <
     source: VariantsNavigation<Configuration>,
     allVariants: KoneSet<Configuration>,
     initialVariant: Configuration,
-    createChild: suspend (configuration: Configuration, nextState: InnerVariantsNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerVariantsNavigationState<Configuration>) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerVariantsNavigationState<Configuration>) -> Unit,
-    componentAccessor: suspend (Child) -> Component,
-): KoneAsynchronousState<ChildrenVariants<Configuration, Component>> =
+    createChild: suspend (configuration: Configuration, nextState: VariantsNavigationState<Configuration>) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: VariantsNavigationState<Configuration>) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: VariantsNavigationState<Configuration>) -> Unit,
+): KoneAsynchronousHub<NavigationResult<VariantsNavigationState<Configuration>, Configuration, Child>> =
     children(
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
         source = source,
-        initialState = InnerVariantsNavigationState(
+        initialState = VariantsNavigationState(
             configurations = allVariants,
             currentVariant = initialVariant,
         ),
+        stateConfigurationsMapping = { currentNavigationState -> currentNavigationState.configurations },
         navigationTransition = { previousState, event ->
-            InnerVariantsNavigationState(
+            VariantsNavigationState(
                 configurations = previousState.configurations,
                 currentVariant = event(previousState.configurations, previousState.currentVariant)
             )
@@ -102,13 +99,4 @@ public suspend fun <
         createChild = createChild,
         destroyChild = destroyChild,
         updateChild = updateChild,
-        publicNavigationStateMapper = { innerState, componentByConfiguration ->
-            ChildrenVariants(
-                active = ChildWithConfiguration(
-                    configuration = innerState.currentVariant,
-                    component = componentAccessor(componentByConfiguration[innerState.currentVariant]),
-                ),
-                allVariants = innerState.configurations.associateWith { componentAccessor(componentByConfiguration[it]) },
-            )
-        },
     )

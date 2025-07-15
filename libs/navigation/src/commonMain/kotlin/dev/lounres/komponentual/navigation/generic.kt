@@ -9,28 +9,31 @@ import dev.lounres.kone.collections.map.KoneMutableMap
 import dev.lounres.kone.collections.map.contains
 import dev.lounres.kone.collections.map.of
 import dev.lounres.kone.collections.set.KoneSet
+import dev.lounres.kone.hub.KoneAsynchronousHub
+import dev.lounres.kone.hub.KoneMutableAsynchronousHub
+import dev.lounres.kone.hub.set
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
-import dev.lounres.kone.state.KoneAsynchronousState
-import dev.lounres.kone.state.KoneMutableAsynchronousState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 
 public fun interface NavigationSource<out Event> {
     public fun subscribe(observer: suspend (Event) -> Unit)
 }
 
-public interface NavigationState<Configuration> {
-    public val configurations: KoneSet<Configuration>
-}
+public data class NavigationResult<NavigationStateType, Configuration, Child>(
+    public val navigationState: NavigationStateType,
+    public val children: KoneMap<Configuration, Child>,
+)
 
 public suspend fun <
     Configuration,
-    InnerNavigationState : NavigationState<Configuration>,
-    PublicNavigationState,
+    NavigationStateType,
     NavigationEvent,
     Child,
 > children(
@@ -38,41 +41,51 @@ public suspend fun <
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: NavigationSource<NavigationEvent>,
-    initialState: InnerNavigationState,
-    navigationTransition: suspend (previousState: InnerNavigationState, event: NavigationEvent) -> InnerNavigationState,
-    createChild: suspend (configuration: Configuration, nextState: InnerNavigationState) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerNavigationState) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerNavigationState) -> Unit,
-    publicNavigationStateMapper: suspend (InnerNavigationState, KoneMap<Configuration, Child>) -> PublicNavigationState,
-): KoneAsynchronousState<PublicNavigationState> {
+    initialState: NavigationStateType,
+    stateConfigurationsMapping: (NavigationStateType) -> KoneSet<Configuration>,
+    navigationTransition: suspend (previousState: NavigationStateType, event: NavigationEvent) -> NavigationStateType,
+    createChild: suspend (configuration: Configuration, nextState: NavigationStateType) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: NavigationStateType) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: NavigationStateType) -> Unit,
+): KoneAsynchronousHub<NavigationResult<NavigationStateType, Configuration, Child>> {
+    val componentsMutex = Mutex()
     val components = KoneMutableMap.of<Configuration, Child>(
         keyEquality = configurationEquality,
         keyHashing = configurationHashing,
         keyOrder = configurationOrder,
     )
-    for (configuration in initialState.configurations)
+    for (configuration in stateConfigurationsMapping(initialState))
         components[configuration] = createChild(configuration, initialState)
     
-    val result = KoneMutableAsynchronousState(publicNavigationStateMapper(initialState, components))
+    val result = KoneMutableAsynchronousHub(NavigationResult(initialState, components), defaultEquality())
     
-    val automaton = AsynchronousAutomaton<InnerNavigationState, NavigationEvent, Nothing>(
+    val automaton = AsynchronousAutomaton<NavigationStateType, NavigationEvent, Nothing>(
         initialState = initialState,
         checkTransition = { previousState, transition -> CheckResult.Success(navigationTransition(previousState, transition)) },
         onTransition = { _, _, nextState ->
             supervisorScope {
-                for (node in components.nodesView)
-                    if (node.key in nextState.configurations) launch {
-                        updateChild(node.key, node.value, nextState)
-                    } else launch {
-                        destroyChild(node.key, node.value, nextState)
-                        node.remove()
+                componentsMutex.withLock {
+                    val newComponents = stateConfigurationsMapping(nextState)
+                    
+                    for (node in components.nodesView)
+                        if (node.key in newComponents) launch {
+                            updateChild(node.key, node.value, nextState)
+                        } else launch {
+                            destroyChild(node.key, node.value, nextState)
+                            componentsMutex.withLock {
+                                node.remove()
+                            }
+                        }
+                    
+                    for (configuration in newComponents) if (configuration !in components) launch {
+                        val newChild = createChild(configuration, nextState)
+                        componentsMutex.withLock {
+                            components[configuration] = newChild
+                        }
                     }
-                
-                for (configuration in nextState.configurations) if (configuration !in components) launch {
-                    components[configuration] = createChild(configuration, nextState)
                 }
             }
-            result.set(publicNavigationStateMapper(nextState, components))
+            result.set(NavigationResult(nextState, components))
         }
     )
     

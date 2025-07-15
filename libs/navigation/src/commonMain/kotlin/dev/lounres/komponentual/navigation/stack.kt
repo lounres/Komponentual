@@ -2,17 +2,16 @@ package dev.lounres.komponentual.navigation
 
 import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.*
-import dev.lounres.kone.collections.map.get
-import dev.lounres.kone.collections.set.KoneSet
-import dev.lounres.kone.collections.set.toKoneSet
+import dev.lounres.kone.collections.set.KoneMutableSet
+import dev.lounres.kone.collections.set.of
 import dev.lounres.kone.collections.utils.dropLast
 import dev.lounres.kone.collections.utils.last
-import dev.lounres.kone.collections.utils.map
+import dev.lounres.kone.collections.utils.mapTo
+import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
-import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -87,19 +86,7 @@ internal class MutableStackNavigationImpl<Configuration> : MutableStackNavigatio
     }
 }
 
-public class InnerStackNavigationState<Configuration> internal constructor(
-    public val stack: KoneList<Configuration>,
-    configurationEquality: Equality<Configuration> = defaultEquality(),
-    configurationHashing: Hashing<Configuration>? = null,
-    configurationOrder: Order<Configuration>? = null,
-) : NavigationState<Configuration> {
-    override val configurations: KoneSet<Configuration> =
-        stack.toKoneSet(
-            elementEquality = configurationEquality,
-            elementHashing = configurationHashing,
-            elementOrder = configurationOrder,
-        )
-}
+public typealias StackNavigationState<Configuration> = KoneList<Configuration>
 
 public data class ChildrenStack<out Configuration, out Component>(
     public val active: ChildWithConfiguration<Configuration, Component>,
@@ -114,54 +101,35 @@ public fun <Configuration, Component> ChildrenStack(configuration: Configuration
 public suspend fun <
     Configuration,
     Child,
-    Component,
 > childrenStack(
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: StackNavigation<Configuration>,
     initialStack: KoneList<Configuration>,
-    createChild: suspend (configuration: Configuration, nextState: InnerStackNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerStackNavigationState<Configuration>) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerStackNavigationState<Configuration>) -> Unit,
-    componentAccessor: suspend (Child) -> Component,
-): KoneAsynchronousState<ChildrenStack<Configuration, Component>> =
+    createChild: suspend (configuration: Configuration, nextState: StackNavigationState<Configuration>) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: StackNavigationState<Configuration>) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: StackNavigationState<Configuration>) -> Unit,
+): KoneAsynchronousHub<NavigationResult<KoneList<Configuration>, Configuration, Child>> =
     children(
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
         source = source,
-        initialState = InnerStackNavigationState(
-            stack = initialStack.also { require(it.size != 0u) { "Cannot initialize a children stack without configurations" } },
-            configurationEquality = configurationEquality,
-            configurationHashing = configurationHashing,
-            configurationOrder = configurationOrder,
-        ),
+        initialState = initialStack.also { require(it.size != 0u) { "Cannot initialize a children stack without configurations" } },
+        stateConfigurationsMapping = { currentNavigationState ->
+            currentNavigationState.mapTo(
+                KoneMutableSet.of(
+                    elementEquality = configurationEquality,
+                    elementHashing = configurationHashing,
+                    elementOrder = configurationOrder,
+                )
+            ) { it }
+        },
         navigationTransition = { previousState, event ->
-            InnerStackNavigationState(
-                stack = event(previousState.stack).also { require(it.size != 0u) { "Cannot initialize a children stack without configurations" } },
-                configurationEquality = configurationEquality,
-                configurationHashing = configurationHashing,
-                configurationOrder = configurationOrder,
-            )
+            event(previousState).also { require(it.size != 0u) { "Cannot initialize a children stack without configurations" } }
         },
         createChild = createChild,
         destroyChild = destroyChild,
         updateChild = updateChild,
-        publicNavigationStateMapper = { innerState, componentByConfiguration ->
-            val stack = innerState.stack
-                .also {
-                    check(it.size != 0u) { "Navigation stack is empty for some reason" }
-                }
-                .map {
-                    ChildWithConfiguration(
-                        configuration = it,
-                        component = componentAccessor(componentByConfiguration[it]),
-                    )
-                }
-            ChildrenStack(
-                active = stack.last(),
-                backStack = stack.dropLast(1u),
-            )
-        },
     )

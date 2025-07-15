@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.jvm.JvmInline
 
 
 @RequiresOptIn(
@@ -36,29 +37,51 @@ import kotlinx.coroutines.sync.withLock
 )
 public annotation class DelicateLifecycleAPI
 
-public interface Lifecycle<out State, out Transition> {
-    public val state: State
+public abstract class Lifecycle<out State, out Transition> internal constructor() {
+    public abstract val state: State
     
-    public fun subscribe(callback: suspend (Transition) -> Unit): Subscription<State>
+    @PublishedApi
+    internal val callbacksLock: ReentrantLock = ReentrantLock()
+    @PublishedApi
+    internal abstract val callbacksState: State
+    internal val callbacks: KoneMutableNoddedList<suspend (@UnsafeVariance Transition) -> Unit> = KoneGCLinkedList() // TODO: Replace with concurrent queue
     
-    public interface Subscription<out State> {
-        public val initialState: State
+    public fun interface Subscription {
         public fun cancel()
     }
     
-    public companion object {
-        public inline fun <State> Subscription(
-            initialState: State,
-            crossinline cancel: () -> Unit,
-        ): Subscription<State> = object : Subscription<State> {
-            override val initialState: State = initialState
-            override fun cancel() { cancel() }
+    public companion object
+}
+
+public fun <State, Transition> Lifecycle<State, Transition>.subscribe(callback: suspend (Transition) -> Unit): Lifecycle.Subscription =
+    callbacksLock.withLock {
+        val node = callbacks.addNode(callback)
+        Lifecycle.Subscription {
+            callbacksLock.withLock {
+                node.remove()
+            }
+        }
+    }
+
+@JvmInline
+public value class LifecycleSubscriptionScope<out Transition> @PublishedApi internal constructor(private val hub: Lifecycle<*, Transition>) {
+    public fun subscribe(callback: suspend (Transition) -> Unit): Lifecycle.Subscription {
+        val node = hub.callbacks.addNode(callback)
+        return Lifecycle.Subscription {
+            hub.callbacksLock.withLock {
+                node.remove()
+            }
         }
     }
 }
 
-public interface MutableLifecycle<State, out Transition> : Lifecycle<State, Transition> {
-    public suspend fun moveTo(state: State)
+public inline fun <State, Transition, Result> Lifecycle<State, Transition>.buildSubscription(builder: LifecycleSubscriptionScope<Transition>.(State) -> Result): Result =
+    callbacksLock.withLock {
+        LifecycleSubscriptionScope(this).builder(callbacksState)
+    }
+
+public abstract class MutableLifecycle<State, out Transition> internal constructor() : Lifecycle<State, Transition>() {
+    public abstract suspend fun moveTo(state: State)
 }
 
 public fun <State, Transition> MutableLifecycle(
@@ -76,10 +99,8 @@ private class MutableLifecycleImpl<State, Transition>(
     initialState: State,
     checkNextState: (previousState: State, nextState: State) -> Boolean,
     decomposeTransition: (previousState: State, nextState: State) -> KoneList<Transition>,
-    ) : MutableLifecycle<State, Transition> {
-    private val callbacksLock = ReentrantLock()
-    private var callbacksState: State = initialState
-    private val callbacks: KoneMutableNoddedList<suspend (Transition) -> Unit> = KoneGCLinkedList() // TODO: Replace with concurrent queue
+) : MutableLifecycle<State, Transition>() {
+    override var callbacksState: State = initialState
     
     private val automaton =
         AsynchronousAutomaton<State, State, Nothing?>(
@@ -103,15 +124,6 @@ private class MutableLifecycleImpl<State, Transition>(
         )
     
     override val state: State get() = automaton.state
-    override fun subscribe(callback: suspend (Transition) -> Unit): Lifecycle.Subscription<State> =
-        callbacksLock.withLock {
-            val node = callbacks.addNode(callback)
-            Lifecycle.Subscription(callbacksState) {
-                callbacksLock.withLock {
-                    node.remove()
-                }
-            }
-        }
     
     override suspend fun moveTo(state: State) {
         automaton.move(state)
@@ -119,8 +131,8 @@ private class MutableLifecycleImpl<State, Transition>(
 }
 
 @DelicateLifecycleAPI
-public interface DeferredLifecycle<out State, out Transition> : Lifecycle<State, Transition> {
-    public suspend fun launch()
+public abstract class DeferredLifecycle<out State, out Transition> : Lifecycle<State, Transition>() {
+    public abstract suspend fun launch()
 }
 
 @DelicateLifecycleAPI
@@ -151,10 +163,8 @@ private class ChildDeferringLifecycle<IState, ITransition, TState, OState, OTran
     checkNextState: (previousState: TState, nextState: TState) -> Boolean,
     decomposeTransition: (previousState: TState, nextState: TState) -> KoneList<OTransition>,
     private val outputState: (TState) -> OState,
-) : DeferredLifecycle<OState, OTransition> {
-    private val callbacksLock = ReentrantLock()
-    private var callbacksState: OState = outputState(initialState)
-    private val callbacks: KoneMutableNoddedList<suspend (OTransition) -> Unit> = KoneGCLinkedList() // TODO: Replace with concurrent queue
+) : DeferredLifecycle<OState, OTransition>() {
+    override var callbacksState: OState = outputState(initialState)
     
     private val automatonMutex = Mutex()
     private val automaton =
@@ -180,25 +190,16 @@ private class ChildDeferringLifecycle<IState, ITransition, TState, OState, OTran
     
     override val state: OState get() = outputState(automaton.state)
     
-    override fun subscribe(callback: suspend (OTransition) -> Unit): Lifecycle.Subscription<OState> =
-        callbacksLock.withLock {
-            val node = callbacks.addNode(callback)
-            Lifecycle.Subscription(callbacksState) {
-                callbacksLock.withLock {
-                    node.remove()
-                }
-            }
-        }
-    
     override suspend fun launch() {
         automatonMutex.withLock {
-            val subscription1 = lifecycle.subscribe { transition ->
-                automatonMutex.withLock {
-                    automaton.move { currentState -> mapTransition(currentState, transition) }
+            lifecycle.buildSubscription { initialState ->
+                automaton.move(mapState(initialState))
+                subscribe { transition ->
+                    automatonMutex.withLock {
+                        automaton.move { currentState -> mapTransition(currentState, transition) }
+                    }
                 }
             }
-            
-            automaton.move(mapState(subscription1.initialState))
         }
     }
 }
@@ -238,10 +239,8 @@ private class MergeDeferringLifecycle<I1State, I1Transition, I2State, I2Transiti
     checkNextState: (previousState: TState, nextState: TState) -> Boolean,
     decomposeTransition: (previousState: TState, nextState: TState) -> KoneList<OTransition>,
     private val outputState: (TState) -> OState,
-) : DeferredLifecycle<OState, OTransition> {
-    private val callbacksLock = ReentrantLock()
-    private var callbacksState: OState = outputState(initialState)
-    private val callbacks: KoneMutableNoddedList<suspend (OTransition) -> Unit> = KoneGCLinkedList() // TODO: Replace with concurrent queue
+) : DeferredLifecycle<OState, OTransition>() {
+    override var callbacksState: OState = outputState(initialState)
     
     private val automatonMutex = Mutex()
     private val automaton =
@@ -267,30 +266,26 @@ private class MergeDeferringLifecycle<I1State, I1Transition, I2State, I2Transiti
     
     override val state: OState get() = outputState(automaton.state)
     
-    override fun subscribe(callback: suspend (OTransition) -> Unit): Lifecycle.Subscription<OState> =
-        callbacksLock.withLock {
-            val node = callbacks.addNode(callback)
-            Lifecycle.Subscription(callbacksState) {
-                callbacksLock.withLock {
-                    node.remove()
-                }
-            }
-        }
-    
     override suspend fun launch() {
         automatonMutex.withLock {
-            val subscription1 = lifecycle1.subscribe { transition ->
-                automatonMutex.withLock {
-                    automaton.move { currentState -> mapTransition1(currentState, transition) }
+            val initialState1 = lifecycle1.buildSubscription { initialState ->
+                subscribe { transition ->
+                    automatonMutex.withLock {
+                        automaton.move { currentState -> mapTransition1(currentState, transition) }
+                    }
                 }
+                initialState
             }
-            val subscription2 = lifecycle2.subscribe { transition ->
-                automatonMutex.withLock {
-                    automaton.move { currentState -> mapTransition2(currentState, transition) }
+            val initialState2 = lifecycle2.buildSubscription { initialState ->
+                subscribe { transition ->
+                    automatonMutex.withLock {
+                        automaton.move { currentState -> mapTransition2(currentState, transition) }
+                    }
                 }
+                initialState
             }
             
-            automaton.move(mergeStates(subscription1.initialState, subscription2.initialState))
+            automaton.move(mergeStates(initialState1, initialState2))
         }
     }
 }

@@ -3,14 +3,13 @@ package dev.lounres.komponentual.navigation
 import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
-import dev.lounres.kone.collections.map.get
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.collections.set.of
+import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultEquality
-import dev.lounres.kone.state.KoneAsynchronousState
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -57,64 +56,37 @@ internal class MutableSlotNavigationImpl<Configuration>(
     }
 }
 
-public class InnerSlotNavigationState<Configuration> internal constructor(
-    public val current: Configuration,
-    configurationEquality: Equality<Configuration> = defaultEquality(),
-    configurationHashing: Hashing<Configuration>? = null,
-    configurationOrder: Order<Configuration>? = null,
-) : NavigationState<Configuration> {
-    override val configurations: KoneSet<Configuration> =
-        KoneSet.of(
-            current,
-            elementEquality = configurationEquality,
-            elementHashing = configurationHashing,
-            elementOrder = configurationOrder,
-        )
-}
-
 public typealias ChildrenSlot<Configuration, Component> = ChildWithConfiguration<Configuration, Component>
 
 public suspend fun <
     Configuration,
     Child,
-    Component,
 > childrenSlot(
     configurationEquality: Equality<Configuration> = defaultEquality(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: SlotNavigation<Configuration>,
     initialConfiguration: Configuration,
-    createChild: suspend (configuration: Configuration, nextState: InnerSlotNavigationState<Configuration>) -> Child,
-    destroyChild: suspend (configuration: Configuration, data: Child, nextState: InnerSlotNavigationState<Configuration>) -> Unit,
-    updateChild: suspend (configuration: Configuration, data: Child, nextState: InnerSlotNavigationState<Configuration>) -> Unit,
-    componentAccessor: suspend (Child) -> Component,
-): KoneAsynchronousState<ChildrenSlot<Configuration, Component>> =
+    createChild: suspend (configuration: Configuration, nextState: Configuration) -> Child,
+    destroyChild: suspend (configuration: Configuration, data: Child, nextState: Configuration) -> Unit,
+    updateChild: suspend (configuration: Configuration, data: Child, nextState: Configuration) -> Unit,
+): KoneAsynchronousHub<NavigationResult<Configuration, Configuration, Child>> =
     children(
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
         source = source,
-        initialState = InnerSlotNavigationState(
-            current = initialConfiguration,
-            configurationEquality = configurationEquality,
-            configurationHashing = configurationHashing,
-            configurationOrder = configurationOrder,
-        ),
-        navigationTransition = { previousState, event ->
-            InnerSlotNavigationState(
-                current = event(previousState.current),
-                configurationEquality = configurationEquality,
-                configurationHashing = configurationHashing,
-                configurationOrder = configurationOrder,
+        initialState = initialConfiguration,
+        stateConfigurationsMapping = { currentNavigationState ->
+            KoneSet.of(
+                currentNavigationState,
+                elementEquality = configurationEquality,
+                elementHashing = configurationHashing,
+                elementOrder = configurationOrder,
             )
         },
+        navigationTransition = { previousState, event -> event(previousState) },
         createChild = createChild,
         destroyChild = destroyChild,
         updateChild = updateChild,
-        publicNavigationStateMapper = { innerState, componentByConfiguration ->
-            ChildrenSlot(
-                configuration = innerState.current,
-                component = componentAccessor(componentByConfiguration[innerState.current]),
-            )
-        },
     )
