@@ -1,10 +1,11 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.interop.toList
+import dev.lounres.kone.cast
 import dev.lounres.kone.collections.list.*
 import dev.lounres.kone.collections.set.KoneMutableSet
 import dev.lounres.kone.collections.set.of
 import dev.lounres.kone.collections.utils.dropLast
+import dev.lounres.kone.collections.utils.forEach
 import dev.lounres.kone.collections.utils.last
 import dev.lounres.kone.collections.utils.mapTo
 import dev.lounres.kone.hub.KoneAsynchronousHub
@@ -26,24 +27,24 @@ public fun interface StackNavigationTarget<Configuration> {
     public suspend fun navigate(stackTransformation: StackNavigationEvent<Configuration>)
 }
 
-public suspend fun <Configuration> StackNavigationTarget<Configuration>.push(configuration: Configuration) {
+public suspend fun <Configuration> StackNavigationTarget<in Configuration>.push(configuration: Configuration) {
     navigate { stack ->
         KoneList.build(stack.size + 1u) {
-            +stack
+            +stack.cast<KoneList<Configuration>>()
             +configuration
         }
     }
 }
 
-public suspend fun <Configuration> StackNavigationTarget<Configuration>.pop() {
+public suspend fun StackNavigationTarget<*>.pop() {
     navigate { stack -> stack.dropLast(1u) }
 }
 
-public suspend fun <Configuration> StackNavigationTarget<Configuration>.replaceCurrent(configuration: Configuration) {
+public suspend fun <Configuration> StackNavigationTarget<in Configuration>.replaceCurrent(configuration: Configuration) {
     navigate { stack ->
-        KoneList.build(stack.size + 1u) {
-            +stack
-            removeAt(stack.lastIndex)
+        KoneList.build(stack.size) {
+            +stack.cast<KoneList<Configuration>>()
+            removeAt(lastIndex)
             +configuration
         }
     }
@@ -51,10 +52,11 @@ public suspend fun <Configuration> StackNavigationTarget<Configuration>.replaceC
 
 public suspend fun <C> StackNavigationTarget<C>.updateCurrent(update: (C) -> C) {
     navigate { stack ->
-        KoneList.build(stack.size + 1u) {
+        KoneList.build(stack.size) {
             +stack
-            removeAt(stack.lastIndex)
-            +update(stack.last())
+            val previouslyLastConfiguration = last()
+            removeAt(lastIndex)
+            +update(previouslyLastConfiguration)
         }
     }
 }
@@ -76,7 +78,7 @@ internal class StackNavigationHubImpl<Configuration> : StackNavigationHub<Config
     
     override suspend fun navigate(stackTransformation: StackNavigationEvent<Configuration>) {
         val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toList()
+            callbacks.toKoneList()
         }
         supervisorScope {
             callbacksToLaunch.forEach { callback ->

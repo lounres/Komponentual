@@ -1,10 +1,11 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
+import dev.lounres.kone.collections.list.toKoneList
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.collections.set.of
+import dev.lounres.kone.collections.utils.forEach
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
@@ -24,7 +25,7 @@ public fun interface SlotNavigationTarget<Configuration> {
     public suspend fun navigate(slotTransformation: SlotNavigationEvent<Configuration>)
 }
 
-public suspend fun <Configuration> SlotNavigationTarget<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> SlotNavigationTarget<in Configuration>.set(configuration: Configuration) {
     navigate { configuration }
 }
 
@@ -33,8 +34,7 @@ public interface SlotNavigationHub<Configuration> : SlotNavigationSource<Configu
 public fun <Configuration> SlotNavigationHub(): SlotNavigationHub<Configuration> =
     SlotNavigationHubImpl()
 
-internal class SlotNavigationHubImpl<Configuration>(
-) : SlotNavigationHub<Configuration> {
+internal class SlotNavigationHubImpl<Configuration>: SlotNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (SlotNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -46,7 +46,7 @@ internal class SlotNavigationHubImpl<Configuration>(
     
     override suspend fun navigate(slotTransformation: SlotNavigationEvent<Configuration>) {
         val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toList()
+            callbacks.toKoneList()
         }
         supervisorScope {
             callbacksToLaunch.forEach { callback ->

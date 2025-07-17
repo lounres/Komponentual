@@ -1,9 +1,10 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
+import dev.lounres.kone.collections.list.toKoneList
 import dev.lounres.kone.collections.set.KoneSet
+import dev.lounres.kone.collections.utils.forEach
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
@@ -23,17 +24,15 @@ public fun interface VariantsNavigationTarget<Configuration> {
     public suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>)
 }
 
-public suspend fun <Configuration> VariantsNavigationTarget<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> VariantsNavigationTarget<in Configuration>.set(configuration: Configuration) {
     navigate { _, _ -> configuration }
 }
 
 public interface VariantsNavigationHub<Configuration> : VariantsNavigationSource<Configuration>, VariantsNavigationTarget<Configuration>
 
-public fun <Configuration> VariantsNavigationHub(): VariantsNavigationHub<Configuration> =
-    VariantsNavigationHubImpl()
+public fun <Configuration> VariantsNavigationHub(): VariantsNavigationHub<Configuration> = VariantsNavigationHubImpl()
 
-internal class VariantsNavigationHubImpl<Configuration>(
-) : VariantsNavigationHub<Configuration> {
+internal class VariantsNavigationHubImpl<Configuration>: VariantsNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (VariantsNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -45,7 +44,7 @@ internal class VariantsNavigationHubImpl<Configuration>(
     
     override suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>) {
         val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toList()
+            callbacks.toKoneList()
         }
         supervisorScope {
             callbacksToLaunch.forEach { callback ->

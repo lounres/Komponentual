@@ -26,7 +26,7 @@ public fun interface NavigationSource<out Event> {
     public fun subscribe(observer: suspend (Event) -> Unit)
 }
 
-public data class NavigationResult<NavigationStateType, Configuration, Child>(
+public data class NavigationResult<out NavigationStateType, Configuration, out Child>(
     public val navigationState: NavigationStateType,
     public val children: KoneMap<Configuration, Child>,
 )
@@ -93,8 +93,3 @@ public suspend fun <
     
     return result
 }
-
-public data class ChildWithConfiguration<out Configuration, out Component>(
-    public val configuration: Configuration,
-    public val component: Component,
-)

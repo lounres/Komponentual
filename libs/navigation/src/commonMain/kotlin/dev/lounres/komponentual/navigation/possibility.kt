@@ -1,11 +1,12 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.list.KoneMutableList
 import dev.lounres.kone.collections.list.of
+import dev.lounres.kone.collections.list.toKoneList
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.collections.set.empty
 import dev.lounres.kone.collections.set.of
+import dev.lounres.kone.collections.utils.forEach
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.maybe.Maybe
 import dev.lounres.kone.maybe.None
@@ -28,11 +29,15 @@ public fun interface PossibilityNavigationTarget<Configuration> {
     public suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>)
 }
 
-public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> PossibilityNavigationTarget<in Configuration>.set(configuration: Maybe<Configuration>) {
+    navigate { configuration }
+}
+
+public suspend fun <Configuration> PossibilityNavigationTarget<in Configuration>.set(configuration: Configuration) {
     navigate { Some(configuration) }
 }
 
-public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.clear() {
+public suspend fun PossibilityNavigationTarget<*>.clear() {
     navigate { None }
 }
 
@@ -40,8 +45,7 @@ public interface PossibilityNavigationHub<Configuration> : PossibilityNavigation
 
 public fun <Configuration> PossibilityNavigationHub(): PossibilityNavigationHub<Configuration> = PossibilityNavigationHubImpl()
 
-internal class PossibilityNavigationHubImpl<Configuration>(
-) : PossibilityNavigationHub<Configuration> {
+internal class PossibilityNavigationHubImpl<Configuration> : PossibilityNavigationHub<Configuration> {
     private val callbacksLock = ReentrantLock()
     private val callbacks: KoneMutableList<suspend (PossibilityNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
     
@@ -53,7 +57,7 @@ internal class PossibilityNavigationHubImpl<Configuration>(
     
     override suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>) {
         val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toList()
+            callbacks.toKoneList()
         }
         supervisorScope {
             callbacksToLaunch.forEach { callback ->
