@@ -4,7 +4,6 @@ import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinJvm
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
-import com.vanniktech.maven.publish.SonatypeHost
 import kotlinx.atomicfu.plugin.gradle.AtomicFUPluginExtension
 import org.gradle.accessors.dm.LibrariesForVersions
 import org.gradle.accessors.dm.RootProjectAccessor
@@ -28,7 +27,7 @@ plugins {
     alias(versions.plugins.compose.multiplatform) apply false
     alias(versions.plugins.dokka)
     `version-catalog`
-    id("com.vanniktech.maven.publish") version "0.31.0"
+    alias(versions.plugins.gradle.maven.publish.plugin)
 }
 
 val komponentualVersion = project.properties["version"] as String
@@ -274,7 +273,7 @@ stal {
         "publishing" {
             apply(plugin = "com.vanniktech.maven.publish")
             configure<MavenPublishBaseExtension> {
-                publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+                publishToMavenCentral()
                 
                 signAllPublications()
                 
