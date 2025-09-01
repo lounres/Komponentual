@@ -9,7 +9,7 @@ import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
-import dev.lounres.kone.relations.defaultEquality
+import dev.lounres.kone.relations.defaultFor
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -65,7 +65,7 @@ public suspend fun <
     Configuration,
     Child,
 > childrenVariants(
-    configurationEquality: Equality<Configuration> = defaultEquality(),
+    configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: VariantsNavigationSource<Configuration>,

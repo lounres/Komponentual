@@ -15,7 +15,7 @@ import dev.lounres.kone.hub.set
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
-import dev.lounres.kone.relations.defaultEquality
+import dev.lounres.kone.relations.defaultFor
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
@@ -37,7 +37,7 @@ public suspend fun <
     NavigationEvent,
     Child,
 > children(
-    configurationEquality: Equality<Configuration> = defaultEquality(),
+    configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
     source: NavigationSource<NavigationEvent>,
@@ -57,7 +57,7 @@ public suspend fun <
     for (configuration in stateConfigurationsMapping(initialState))
         components[configuration] = createChild(configuration, initialState)
     
-    val result = KoneMutableAsynchronousHub(NavigationResult(initialState, components), defaultEquality() /* FIXME: Implement actual equality */)
+    val result = KoneMutableAsynchronousHub(NavigationResult(initialState, components), Equality.defaultFor() /* FIXME: Implement actual equality */)
     
     val automaton = AsynchronousAutomaton<NavigationState, NavigationEvent, Nothing>(
         initialState = initialState,

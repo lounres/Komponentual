@@ -8,7 +8,7 @@ import dev.lounres.kone.collections.interop.toList
 import dev.lounres.kone.collections.iterables.next
 import dev.lounres.kone.collections.list.KoneList
 import dev.lounres.kone.collections.list.KoneMutableNoddedList
-import dev.lounres.kone.collections.list.implementations.KoneGCLinkedList
+import dev.lounres.kone.collections.list.implementations.KoneGCLinkedSizedList
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
 import kotlinx.coroutines.launch
@@ -44,7 +44,7 @@ public abstract class Lifecycle<out State, out Transition> internal constructor(
     internal val callbacksLock: ReentrantLock = ReentrantLock()
     @PublishedApi
     internal abstract val callbacksState: State
-    internal val callbacks: KoneMutableNoddedList<suspend (@UnsafeVariance Transition) -> Unit> = KoneGCLinkedList() // TODO: Replace with concurrent queue
+    internal val callbacks: KoneMutableNoddedList<suspend (@UnsafeVariance Transition) -> Unit> = KoneGCLinkedSizedList() // TODO: Replace with concurrent queue
     
     public fun interface Subscription {
         public fun cancel()
