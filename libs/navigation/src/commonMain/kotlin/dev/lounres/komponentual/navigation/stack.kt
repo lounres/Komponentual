@@ -8,6 +8,7 @@ import dev.lounres.kone.collections.utils.dropLast
 import dev.lounres.kone.collections.utils.forEach
 import dev.lounres.kone.collections.utils.last
 import dev.lounres.kone.collections.utils.mapTo
+import dev.lounres.kone.collections.utils.plusAssign
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
@@ -30,7 +31,7 @@ public fun interface StackNavigationTarget<Configuration> {
 public suspend fun <Configuration> StackNavigationTarget<in Configuration>.push(configuration: Configuration) {
     navigate { stack ->
         KoneList.build(stack.size + 1u) {
-            +stack.cast<KoneList<Configuration>>()
+            this += stack.cast<KoneList<Configuration>>()
             +configuration
         }
     }
@@ -43,7 +44,7 @@ public suspend fun StackNavigationTarget<*>.pop() {
 public suspend fun <Configuration> StackNavigationTarget<in Configuration>.replaceCurrent(configuration: Configuration) {
     navigate { stack ->
         KoneList.build(stack.size) {
-            +stack.cast<KoneList<Configuration>>()
+            this += stack.cast<KoneList<Configuration>>()
             removeAt(lastIndex)
             +configuration
         }
@@ -53,7 +54,7 @@ public suspend fun <Configuration> StackNavigationTarget<in Configuration>.repla
 public suspend fun <C> StackNavigationTarget<C>.updateCurrent(update: (C) -> C) {
     navigate { stack ->
         KoneList.build(stack.size) {
-            +stack
+            this += stack
             val previouslyLastConfiguration = last()
             removeAt(lastIndex)
             +update(previouslyLastConfiguration)
