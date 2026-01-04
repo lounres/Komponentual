@@ -1,3 +1,7 @@
+plugins {
+    alias(versions.plugins.kotlinx.serialization)
+}
+
 kotlin {
     sourceSets {
         commonMain {
@@ -6,6 +10,7 @@ kotlin {
                 implementation(versions.kone.automata)
                 api(versions.kone.state)
                 api(versions.kone.collections)
+                implementation(versions.kotlinx.serialization.core)
             }
         }
     }

@@ -131,7 +131,7 @@ private class MutableLifecycleImpl<State, Transition>(
 }
 
 @DelicateLifecycleAPI
-public abstract class DeferredLifecycle<out State, out Transition> : Lifecycle<State, Transition>() {
+public abstract class DeferredLifecycle<out State, out Transition> internal constructor() : Lifecycle<State, Transition>() {
     public abstract suspend fun launch()
 }
 

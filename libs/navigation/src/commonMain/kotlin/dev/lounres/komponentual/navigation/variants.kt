@@ -1,65 +1,54 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.list.KoneMutableList
-import dev.lounres.kone.collections.list.of
-import dev.lounres.kone.collections.list.toKoneList
 import dev.lounres.kone.collections.set.KoneSet
-import dev.lounres.kone.collections.utils.forEach
+import dev.lounres.kone.contexts.invoke
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultFor
-import kotlinx.atomicfu.locks.ReentrantLock
-import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
+import dev.lounres.kone.relations.eq
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
 
 public typealias VariantsNavigationEvent<Configuration> = (allVariants: KoneSet<Configuration>, Configuration) -> Configuration
 
 public typealias VariantsNavigationSource<Configuration> = NavigationSource<VariantsNavigationEvent<Configuration>>
 
-public fun interface VariantsNavigationTarget<Configuration> {
-    public suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>)
-}
+public typealias VariantsNavigationTarget<Configuration> = NavigationTarget<VariantsNavigationEvent<Configuration>>
 
-public suspend fun <Configuration> VariantsNavigationTarget<in Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> VariantsNavigationTarget<Configuration>.set(configuration: Configuration) {
     navigate { _, _ -> configuration }
 }
 
-public interface VariantsNavigationHub<Configuration> : VariantsNavigationSource<Configuration>, VariantsNavigationTarget<Configuration>
+public typealias VariantsNavigationHub<Configuration> = NavigationHub<VariantsNavigationEvent<Configuration>>
 
-public fun <Configuration> VariantsNavigationHub(): VariantsNavigationHub<Configuration> = VariantsNavigationHubImpl()
+public fun <Configuration> VariantsNavigationHub(): VariantsNavigationHub<Configuration> = NavigationHub()
 
-internal class VariantsNavigationHubImpl<Configuration>: VariantsNavigationHub<Configuration> {
-    private val callbacksLock = ReentrantLock()
-    private val callbacks: KoneMutableList<suspend (VariantsNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
-    
-    override fun subscribe(observer: suspend (VariantsNavigationEvent<Configuration>) -> Unit) {
-        callbacksLock.withLock {
-            callbacks.add(observer)
-        }
-    }
-    
-    override suspend fun navigate(variantsTransformation: VariantsNavigationEvent<Configuration>) {
-        val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toKoneList()
-        }
-        supervisorScope {
-            callbacksToLaunch.forEach { callback ->
-                launch {
-                    callback(variantsTransformation)
-                }
-            }
-        }
-    }
-}
-
-public data class VariantsNavigationState<Configuration> internal constructor(
+public data class VariantsNavigationState<Configuration>(
     public val configurations: KoneSet<Configuration>,
     public val currentVariant: Configuration,
-)
+) {
+    public class Serializer<Configuration>(
+        private val configurationSerializer: KSerializer<Configuration>,
+        private val allConfigurations: KoneSet<Configuration>,
+    ) : KSerializer<VariantsNavigationState<Configuration>> {
+        override val descriptor: SerialDescriptor = configurationSerializer.descriptor
+        
+        override fun serialize(encoder: Encoder, value: VariantsNavigationState<Configuration>) {
+            encoder.encodeSerializableValue(configurationSerializer, value.currentVariant)
+        }
+        
+        override fun deserialize(decoder: Decoder): VariantsNavigationState<Configuration> =
+            VariantsNavigationState(
+                configurations = allConfigurations,
+                currentVariant = decoder.decodeSerializableValue(configurationSerializer)
+            )
+    }
+}
 
 public suspend fun <
     Configuration,
@@ -68,6 +57,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
+    childEquality: Equality<Child> = Equality.defaultFor(),
     source: VariantsNavigationSource<Configuration>,
     allVariants: KoneSet<Configuration>,
     initialVariant: Configuration,
@@ -79,6 +69,10 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
+        navigationStateEquality = Equality { left, right ->
+            configurationEquality { left.currentVariant eq right.currentVariant }
+        },
+        childEquality = childEquality,
         source = source,
         initialState = VariantsNavigationState(
             configurations = allVariants,

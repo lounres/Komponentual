@@ -1,12 +1,9 @@
 package dev.lounres.komponentual.navigation
 
-import dev.lounres.kone.collections.list.KoneMutableList
-import dev.lounres.kone.collections.list.of
-import dev.lounres.kone.collections.list.toKoneList
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.collections.set.empty
 import dev.lounres.kone.collections.set.of
-import dev.lounres.kone.collections.utils.forEach
+import dev.lounres.kone.contexts.invoke
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.maybe.Maybe
 import dev.lounres.kone.maybe.None
@@ -15,59 +12,30 @@ import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultFor
-import kotlinx.atomicfu.locks.ReentrantLock
-import kotlinx.atomicfu.locks.withLock
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
+import dev.lounres.kone.relations.eq
 
 
 public typealias PossibilityNavigationEvent<Configuration> = (Maybe<Configuration>) -> Maybe<Configuration>
 
 public typealias PossibilityNavigationSource<Configuration> = NavigationSource<PossibilityNavigationEvent<Configuration>>
 
-public fun interface PossibilityNavigationTarget<Configuration> {
-    public suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>)
-}
+public typealias PossibilityNavigationTarget<Configuration> = NavigationTarget<PossibilityNavigationEvent<Configuration>>
 
-public suspend fun <Configuration> PossibilityNavigationTarget<in Configuration>.set(configuration: Maybe<Configuration>) {
+public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.set(configuration: Maybe<Configuration>) {
     navigate { configuration }
 }
 
-public suspend fun <Configuration> PossibilityNavigationTarget<in Configuration>.set(configuration: Configuration) {
+public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.set(configuration: Configuration) {
     navigate { Some(configuration) }
 }
 
-public suspend fun PossibilityNavigationTarget<*>.clear() {
+public suspend fun <Configuration> PossibilityNavigationTarget<Configuration>.clear() {
     navigate { None }
 }
 
-public interface PossibilityNavigationHub<Configuration> : PossibilityNavigationSource<Configuration>, PossibilityNavigationTarget<Configuration>
+public typealias PossibilityNavigationHub<Configuration> = NavigationHub<PossibilityNavigationEvent<Configuration>>
 
-public fun <Configuration> PossibilityNavigationHub(): PossibilityNavigationHub<Configuration> = PossibilityNavigationHubImpl()
-
-internal class PossibilityNavigationHubImpl<Configuration> : PossibilityNavigationHub<Configuration> {
-    private val callbacksLock = ReentrantLock()
-    private val callbacks: KoneMutableList<suspend (PossibilityNavigationEvent<Configuration>) -> Unit> = KoneMutableList.of()
-    
-    override fun subscribe(observer: suspend (PossibilityNavigationEvent<Configuration>) -> Unit) {
-        callbacksLock.withLock {
-            callbacks.add(observer)
-        }
-    }
-    
-    override suspend fun navigate(possibilityTransformation: PossibilityNavigationEvent<Configuration>) {
-        val callbacksToLaunch = callbacksLock.withLock {
-            callbacks.toKoneList()
-        }
-        supervisorScope {
-            callbacksToLaunch.forEach { callback ->
-                launch {
-                    callback(possibilityTransformation)
-                }
-            }
-        }
-    }
-}
+public fun <Configuration> PossibilityNavigationHub(): PossibilityNavigationHub<Configuration> = NavigationHub()
 
 public typealias PossibilityNavigationState<Configuration> = Maybe<Configuration>
 
@@ -78,6 +46,7 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
+    childEquality: Equality<Child> = Equality.defaultFor(),
     source: PossibilityNavigationSource<Configuration>,
     initialConfiguration: Maybe<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: PossibilityNavigationState<Configuration>) -> Child,
@@ -88,6 +57,10 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
+        navigationStateEquality = Equality { left, right ->
+            (left === None && right === None) || (left is Some && right is Some && configurationEquality { left.value eq right.value })
+        },
+        childEquality = childEquality,
         source = source,
         initialState = initialConfiguration,
         stateConfigurationsMapping = { currentNavigationState ->
