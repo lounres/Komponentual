@@ -3,7 +3,6 @@ package dev.lounres.komponentual.navigation
 import dev.lounres.kone.collections.set.KoneSet
 import dev.lounres.kone.collections.set.empty
 import dev.lounres.kone.collections.set.of
-import dev.lounres.kone.contexts.invoke
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.maybe.Maybe
 import dev.lounres.kone.maybe.None
@@ -12,7 +11,6 @@ import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultFor
-import dev.lounres.kone.relations.eq
 
 
 public typealias PossibilityNavigationEvent<Configuration> = (Maybe<Configuration>) -> Maybe<Configuration>
@@ -46,7 +44,6 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    childEquality: Equality<Child> = Equality.defaultFor(),
     source: PossibilityNavigationSource<Configuration>,
     initialConfiguration: Maybe<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: PossibilityNavigationState<Configuration>) -> Child,
@@ -57,10 +54,6 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
-        navigationStateEquality = Equality { left, right ->
-            (left === None && right === None) || (left is Some && right is Some && configurationEquality { left.value eq right.value })
-        },
-        childEquality = childEquality,
         source = source,
         initialState = initialConfiguration,
         stateConfigurationsMapping = { currentNavigationState ->

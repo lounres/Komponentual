@@ -30,7 +30,6 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    childEquality: Equality<Child> = Equality.defaultFor(),
     source: SlotNavigationSource<Configuration>,
     initialConfiguration: Configuration,
     createChild: suspend (configuration: Configuration, nextState: Configuration) -> Child,
@@ -41,8 +40,6 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
-        navigationStateEquality = configurationEquality,
-        childEquality = childEquality,
         source = source,
         initialState = initialConfiguration,
         stateConfigurationsMapping = { currentNavigationState ->

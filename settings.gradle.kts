@@ -2,6 +2,17 @@ rootProject.name = "Komponentual"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
+val localProperties = java.util.Properties()
+file("local.properties").let { localPropertiesFile ->
+    if (localPropertiesFile.exists()) localPropertiesFile.inputStream().use {
+        localProperties.load(it)
+    }
+}
+
+gradle.projectsLoaded {
+    for ((key, property) in localProperties) gradle.rootProject.extra[key.toString()] = property
+}
+
 val projectProperties = java.util.Properties()
 file("gradle.properties").inputStream().use {
     projectProperties.load(it)
@@ -26,13 +37,14 @@ dependencyResolutionManagement {
 pluginManagement {
     repositories {
         mavenCentral()
+        google()
         gradlePluginPortal()
     }
 }
 
 plugins {
     id("dev.lounres.gradle.stal") version "0.4.0"
-    id("org.gradle.toolchains.foojay-resolver-convention") version("0.10.0")
+    id("org.gradle.toolchains.foojay-resolver-convention") version("1.0.0")
 }
 
 stal {
@@ -48,6 +60,7 @@ stal {
     tag {
         // Kotlin set up
         "kotlin multiplatform" since { hasAnyOf("libs") }
+        "kotlin android" since { has("kotlin multiplatform") && hasAnyOf("libs") }
         "kotlin common settings" since { hasAnyOf("kotlin multiplatform", "kotlin jvm") }
         "kotlin library settings" since { hasAnyOf("libs", "algorithms") }
         // Extra
@@ -62,6 +75,7 @@ stal {
         gradle.allprojects {
             extra["artifactId"] = ""
             extra["alias"] = ""
+            extra["androidNamespace"] = ""
             extra["isDokkaConfigured"] = false
             extra["jvmTargetVersion"] = settings.extra["jvmTargetVersion"]
             extra["jvmVendor"] = settings.extra["jvmVendor"]
@@ -69,6 +83,7 @@ stal {
         "libs" {
             extra["artifactId"] = "komponentual.${project.name}"
             extra["alias"] = project.name
+            extra["androidNamespace"] = "dev.lounres.komponentual.${project.name}"
         }
         "version catalog" {
             extra["artifactId"] = "komponentual.versionCatalog"

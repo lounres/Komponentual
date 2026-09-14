@@ -1,9 +1,11 @@
 @file:Suppress("SuspiciousCollectionReassignment")
 
+import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinJvm
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import com.vanniktech.maven.publish.SourcesJar
 import kotlinx.atomicfu.plugin.gradle.AtomicFUPluginExtension
 import org.gradle.accessors.dm.LibrariesForVersions
 import org.gradle.accessors.dm.RootProjectAccessor
@@ -16,12 +18,13 @@ import org.jetbrains.kotlin.gradle.dsl.ExplicitApiMode.Warning
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinProjectExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import org.jetbrains.kotlin.gradle.targets.js.yarn.yarn
-import kotlin.collections.plus
 
 
 plugins {
     alias(versions.plugins.kotlin.multiplatform) apply false
+    alias(versions.plugins.android.library) apply false
     alias(versions.plugins.kotlinx.atomicfu) apply false
     alias(versions.plugins.kotlin.compose) apply false
     alias(versions.plugins.compose.multiplatform) apply false
@@ -30,8 +33,8 @@ plugins {
     alias(versions.plugins.gradle.maven.publish.plugin)
 }
 
-val komponentualVersion = project.properties["version"] as String
-val komponentualGroup = project.properties["group"] as String
+val komponentualVersion = project.property("version") as String
+val komponentualGroup = project.property("group") as String
 
 allprojects {
     version = komponentualVersion
@@ -83,16 +86,38 @@ stal {
             apply(versions.plugins.kotlin.jvm)
             configure<KotlinJvmProjectExtension> {
                 compilerOptions {
-                    freeCompilerArgs = freeCompilerArgs.get() + listOf(
-                        "-Xklib-duplicated-unique-name-strategy=allow-all-with-warning",
+                    progressiveMode = true
+                    freeCompilerArgs.addAll(
+//                        "-Xklib-duplicated-unique-name-strategy=allow-all-with-warning",
+                        "-Xcontext-parameters",
+//                        "-Xvalue-classes",
+//                        "-Xcontract-syntax-v2",
+                        "-Xexplicit-backing-fields",
                         "-Xexpect-actual-classes",
                         "-Xconsistent-data-class-copy-visibility",
+                        "-Xcontext-sensitive-resolution",
+                        "-Xreturn-value-checker=full",
                     )
+                    optIn.set(
+                        listOf(
+                            "kotlin.experimental.ExperimentalTypeInference",
+                            "kotlin.contracts.ExperimentalContracts",
+                            "kotlin.ExperimentalStdlibApi",
+                            "kotlin.ExperimentalSubclassOptIn",
+                            "kotlin.ExperimentalUnsignedTypes",
+                            "kotlin.uuid.ExperimentalUuidApi",
+                            "kotlin.concurrent.atomics.ExperimentalAtomicApi",
+                            "kotlinx.serialization.ExperimentalSerializationApi",
+                            "dev.lounres.kone.annotations.UnstableKoneAPI",
+                            "dev.lounres.kone.annotations.ExperimentalKoneAPI",
+                        )
+                    )
+                    verbose = true
                 }
                 
                 @Suppress("UNUSED_VARIABLE")
                 sourceSets {
-                    val test by getting {
+                    val test = getByName("test") {
                         dependencies {
                             implementation(kotlin("test"))
                         }
@@ -106,11 +131,36 @@ stal {
                 applyDefaultHierarchyTemplate()
                 
                 compilerOptions {
-                    freeCompilerArgs = freeCompilerArgs.get() + listOf(
-                        "-Xklib-duplicated-unique-name-strategy=allow-all-with-warning",
+                    languageVersion = KotlinVersion.KOTLIN_2_4
+                    progressiveMode = true
+                    freeCompilerArgs.addAll(
+//                        "-Xklib-duplicated-unique-name-strategy=allow-all-with-warning",
+                        "-Xcontext-parameters",
+//                        "-Xvalue-classes",
+//                        "-Xcontract-syntax-v2",
+                        "-Xexplicit-backing-fields",
                         "-Xexpect-actual-classes",
                         "-Xconsistent-data-class-copy-visibility",
+                        "-Xcontext-sensitive-resolution",
+                        "-Xreturn-value-checker=full",
+                        "-Xlocal-type-aliases",
+                        "-Xname-based-destructuring=complete",
                     )
+                    optIn.set(
+                        listOf(
+                            "kotlin.experimental.ExperimentalTypeInference",
+                            "kotlin.contracts.ExperimentalContracts",
+                            "kotlin.ExperimentalStdlibApi",
+                            "kotlin.ExperimentalSubclassOptIn",
+                            "kotlin.ExperimentalUnsignedTypes",
+                            "kotlin.uuid.ExperimentalUuidApi",
+                            "kotlin.concurrent.atomics.ExperimentalAtomicApi",
+                            "kotlinx.serialization.ExperimentalSerializationApi",
+                            "dev.lounres.kone.annotations.UnstableKoneAPI",
+                            "dev.lounres.kone.annotations.ExperimentalKoneAPI",
+                        )
+                    )
+                    verbose = true
                 }
                 
                 jvm {
@@ -153,7 +203,24 @@ stal {
                 }
             }
             afterEvaluate {
-                yarn.lockFileDirectory = rootDir.resolve("gradle")
+                yarn.lockFileDirectoryProperty = rootDir.resolve("gradle")
+            }
+        }
+        "kotlin android" {
+            apply(versions.plugins.android.library)
+            pluginManager.withPlugin(versions.plugins.kotlin.multiplatform) {
+                configure<KotlinMultiplatformExtension> {
+                    configure<KotlinMultiplatformAndroidLibraryTarget> {
+                        namespace = project.extra["androidNamespace"] as String
+                        compileSdk = (rootProject.extra["android.compileSdk"] as String).toInt()
+                        minSdk = (rootProject.extra["android.minSdk"] as String).toInt()
+                        
+                        withHostTestBuilder { }.configure { }
+                        withDeviceTestBuilder {
+                            sourceSetTreeName = "test"
+                        }
+                    }
+                }
             }
         }
         "kotlin common settings" {
@@ -162,27 +229,6 @@ stal {
                     jvmToolchain {
                         languageVersion = JavaLanguageVersion.of(project.extra["jvmTargetVersion"] as String)
                         vendor = JvmVendorSpec.matching(project.extra["jvmVendor"] as String)
-                    }
-                    
-                    sourceSets {
-                        all {
-                            languageSettings {
-                                progressiveMode = true
-                                enableLanguageFeature("ContextParameters")
-                                enableLanguageFeature("ValueClasses")
-                                enableLanguageFeature("ContractSyntaxV2")
-                                enableLanguageFeature("ExplicitBackingFields")
-                                optIn("kotlin.contracts.ExperimentalContracts")
-                                optIn("kotlin.ExperimentalStdlibApi")
-                                optIn("kotlin.ExperimentalSubclassOptIn")
-                                optIn("kotlin.ExperimentalUnsignedTypes")
-                                optIn("kotlin.uuid.ExperimentalUuidApi")
-                                optIn("kotlin.concurrent.atomics.ExperimentalAtomicApi")
-                                optIn("kotlinx.serialization.ExperimentalSerializationApi")
-                                optIn("dev.lounres.kone.annotations.UnstableKoneAPI")
-                                optIn("dev.lounres.kone.annotations.ExperimentalKoneAPI")
-                            }
-                        }
                     }
                 }
             }
@@ -249,8 +295,10 @@ stal {
                 configure<MavenPublishBaseExtension> {
                     configure(
                         KotlinJvm(
-                            javadocJar = JavadocJar.Empty(),
-                            sourcesJar = true,
+                            javadocJar =
+                                if (extra["isDokkaConfigured"] == true) JavadocJar.Dokka("dokkaGeneratePublicationHtml")
+                                else JavadocJar.Empty(),
+                            sourcesJar = SourcesJar.Sources(),
                         )
                     )
                 }
@@ -264,7 +312,7 @@ stal {
                             javadocJar =
                                 if (extra["isDokkaConfigured"] == true) JavadocJar.Dokka("dokkaGeneratePublicationHtml")
                                 else JavadocJar.Empty(),
-                            sourcesJar = true,
+                            sourcesJar = SourcesJar.Sources(),
                         )
                     )
                 }

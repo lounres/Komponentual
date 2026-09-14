@@ -1,13 +1,11 @@
 package dev.lounres.komponentual.navigation
 
 import dev.lounres.kone.collections.set.KoneSet
-import dev.lounres.kone.contexts.invoke
 import dev.lounres.kone.hub.KoneAsynchronousHub
 import dev.lounres.kone.relations.Equality
 import dev.lounres.kone.relations.Hashing
 import dev.lounres.kone.relations.Order
 import dev.lounres.kone.relations.defaultFor
-import dev.lounres.kone.relations.eq
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -57,7 +55,6 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    childEquality: Equality<Child> = Equality.defaultFor(),
     source: VariantsNavigationSource<Configuration>,
     allVariants: KoneSet<Configuration>,
     initialVariant: Configuration,
@@ -69,10 +66,6 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
-        navigationStateEquality = Equality { left, right ->
-            configurationEquality { left.currentVariant eq right.currentVariant }
-        },
-        childEquality = childEquality,
         source = source,
         initialState = VariantsNavigationState(
             configurations = allVariants,

@@ -3,7 +3,6 @@ package dev.lounres.komponentual.navigation
 import dev.lounres.kone.collections.list.KoneList
 import dev.lounres.kone.collections.list.build
 import dev.lounres.kone.collections.list.lastIndex
-import dev.lounres.kone.collections.list.relations.equality
 import dev.lounres.kone.collections.set.KoneMutableSet
 import dev.lounres.kone.collections.set.of
 import dev.lounres.kone.collections.utils.copyTo
@@ -70,7 +69,6 @@ public suspend fun <
     configurationEquality: Equality<Configuration> = Equality.defaultFor(),
     configurationHashing: Hashing<Configuration>? = null,
     configurationOrder: Order<Configuration>? = null,
-    childEquality: Equality<Child> = Equality.defaultFor(),
     source: StackNavigationSource<Configuration>,
     initialStack: KoneList<Configuration>,
     createChild: suspend (configuration: Configuration, nextState: StackNavigationState<Configuration>) -> Child,
@@ -81,8 +79,6 @@ public suspend fun <
         configurationEquality = configurationEquality,
         configurationHashing = configurationHashing,
         configurationOrder = configurationOrder,
-        navigationStateEquality = KoneList.equality(configurationEquality),
-        childEquality = childEquality,
         source = source,
         initialState = initialStack.also { require(it.size != 0u) { "Cannot initialize a children stack without configurations" } },
         stateConfigurationsMapping = { currentNavigationState ->
